@@ -3,6 +3,11 @@ package com.wallpaperswitcher;
 import android.app.Activity;
 import android.app.WallpaperManager;
 import android.content.res.ColorStateList;
+import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
+import android.os.Build;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
@@ -13,10 +18,14 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.view.animation.Animation;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.RotateAnimation;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -35,6 +44,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
+    private static final String ACTION_CHANGE_WALLPAPER = "com.wallpaperswitcher.ACTION_CHANGE_WALLPAPER";
     private static final String[] CATEGORIES = {
             "Natureza", "Carros", "Espaço", "Abstratos", "Cidades", "Animais",
             "Anime", "Tecnologia", "Arquitetura", "Praias", "Flores", "Motos",
@@ -46,6 +56,10 @@ public class MainActivity extends Activity {
     private LinearLayout root;
     private TextView status;
     private ProgressBar progress;
+    private Button changeButton;
+    private ImageView loadingIcon;
+    private TextView validationStatus;
+    private Button saveButton;
     private final Map<String, CheckBox> categoryChecks = new HashMap<>();
     private EditText pixabayField, pexelsField, unsplashField;
 
@@ -55,12 +69,10 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("wallpaper_settings", MODE_PRIVATE);
         executor = Executors.newSingleThreadExecutor();
         buildHome();
-        if (prefs.getBoolean("configured", false)) {
-            status.setText("Procurando uma nova imagem...");
-            setLoading(true);
+        if (ACTION_CHANGE_WALLPAPER.equals(getIntent().getAction())) {
             changeWallpaper();
-        } else {
-            showSettings();
+        } else if (!prefs.getBoolean("configured", false)) {
+            status.setText("Configure suas fontes e categorias. Depois, use Mudar papel de parede.");
         }
     }
 
@@ -68,6 +80,15 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (executor != null) executor.shutdown();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (ACTION_CHANGE_WALLPAPER.equals(intent.getAction())) {
+            changeWallpaper();
+        }
     }
 
     private int dp(int value) {
@@ -112,19 +133,36 @@ public class MainActivity extends Activity {
         status.setPadding(0, dp(14), 0, dp(14));
         root.addView(status, full());
 
+        loadingIcon = new ImageView(this);
+        loadingIcon.setImageResource(R.drawable.ic_shortcut_change);
+        loadingIcon.setVisibility(View.GONE);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(58), dp(58));
+        iconParams.gravity = Gravity.CENTER;
+        root.addView(loadingIcon, iconParams);
+
         progress = new ProgressBar(this);
         progress.setVisibility(View.GONE);
         LinearLayout.LayoutParams progressParams = full();
         progressParams.gravity = Gravity.CENTER;
         root.addView(progress, progressParams);
 
+        changeButton = new Button(this);
+        changeButton.setText("MUDAR PAPEL DE PAREDE");
+        changeButton.setOnClickListener(v -> changeWallpaper());
+        root.addView(changeButton, full());
+
         Button settings = new Button(this);
         settings.setText("Configurar fontes e categorias");
         settings.setOnClickListener(v -> showSettings());
         root.addView(settings, full());
 
+        Button shortcut = new Button(this);
+        shortcut.setText("Criar atalho: Trocar papel de parede");
+        shortcut.setOnClickListener(v -> createChangeShortcut());
+        root.addView(shortcut, full());
+
         TextView note = new TextView(this);
-        note.setText("Ao abrir pelo ícone da tela inicial, o aplicativo pesquisa outra imagem e aplica na tela inicial e na tela de bloqueio. A primeira utilização exige configuração.");
+        note.setText("O aplicativo não troca a imagem ao ser aberto nem ao salvar configurações. Use o botão MUDAR PAPEL DE PAREDE ou crie um atalho na tela inicial para executar a troca diretamente.");
         note.setTextSize(12);
         note.setTextColor(0xFFB8C4D8);
         note.setPadding(0, dp(16), 0, 0);
@@ -132,7 +170,27 @@ public class MainActivity extends Activity {
     }
 
     private void setLoading(boolean loading) {
-        progress.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (progress != null) progress.setVisibility(loading ? View.VISIBLE : View.GONE);
+        if (loadingIcon != null) {
+            if (loading) {
+                loadingIcon.setVisibility(View.VISIBLE);
+                RotateAnimation rotate = new RotateAnimation(
+                        0f, 360f,
+                        Animation.RELATIVE_TO_SELF, 0.5f,
+                        Animation.RELATIVE_TO_SELF, 0.5f);
+                rotate.setDuration(850);
+                rotate.setRepeatCount(Animation.INFINITE);
+                rotate.setInterpolator(new LinearInterpolator());
+                loadingIcon.startAnimation(rotate);
+            } else {
+                loadingIcon.clearAnimation();
+                loadingIcon.setVisibility(View.GONE);
+            }
+        }
+        if (changeButton != null) {
+            changeButton.setEnabled(!loading);
+            changeButton.setText(loading ? "ATUALIZANDO PAPEL DE PAREDE..." : "MUDAR PAPEL DE PAREDE");
+        }
     }
 
     private void addSection(String text) {
@@ -186,13 +244,27 @@ public class MainActivity extends Activity {
         help.setPadding(0, dp(8), 0, dp(12));
         root.addView(help, full());
 
-        Button save = new Button(this);
-        save.setText("Salvar e trocar papel de parede");
-        save.setOnClickListener(v -> {
-            saveSettings();
-            changeWallpaper();
+        validationStatus = new TextView(this);
+        validationStatus.setText("Depois de salvar, o aplicativo testará cada chave preenchida e mostrará o resultado aqui.");
+        validationStatus.setTextSize(13);
+        validationStatus.setTextColor(0xFFB8C4D8);
+        validationStatus.setPadding(0, dp(8), 0, dp(12));
+        root.addView(validationStatus, full());
+
+        saveButton = new Button(this);
+        saveButton.setText("Salvar e testar APIs");
+        saveButton.setOnClickListener(v -> {
+            if (!saveSettings()) {
+                validationStatus.setText("Não foi possível salvar as configurações no aparelho.");
+                return;
+            }
+            saveButton.setEnabled(false);
+            validationStatus.setText("Configurações salvas no aparelho. Testando as APIs preenchidas...");
+            status.setText("Verificando as chaves das fontes de imagens. Nenhum papel de parede será alterado.");
+            setLoading(true);
+            validateSavedApis();
         });
-        root.addView(save, full());
+        root.addView(saveButton, full());
 
         Button back = new Button(this);
         back.setText("Voltar");
@@ -200,7 +272,33 @@ public class MainActivity extends Activity {
         root.addView(back, full());
     }
 
-    private void saveSettings() {
+    private void createChangeShortcut() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            Toast.makeText(this, "Atalhos fixados exigem Android 8.0 ou superior.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        ShortcutManager shortcutManager = getSystemService(ShortcutManager.class);
+        if (shortcutManager == null || !shortcutManager.isRequestPinShortcutSupported()) {
+            Toast.makeText(this, "Seu launcher não permite criar atalhos fixados.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Intent shortcutIntent = new Intent(this, MainActivity.class);
+        shortcutIntent.setAction(ACTION_CHANGE_WALLPAPER);
+        shortcutIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        ShortcutInfo shortcutInfo = new ShortcutInfo.Builder(this, "change_wallpaper_shortcut")
+                .setShortLabel("Trocar papel")
+                .setLongLabel("Trocar papel de parede agora")
+                .setIcon(Icon.createWithResource(this, R.drawable.ic_shortcut_change))
+                .setIntent(shortcutIntent)
+                .build();
+
+        shortcutManager.requestPinShortcut(shortcutInfo, null);
+        Toast.makeText(this, "Solicitação de atalho enviada. Confirme na tela inicial.", Toast.LENGTH_LONG).show();
+    }
+
+    private boolean saveSettings() {
         android.content.SharedPreferences.Editor editor = prefs.edit();
         for (String category : CATEGORIES) {
             CheckBox cb = categoryChecks.get(category);
@@ -210,7 +308,88 @@ public class MainActivity extends Activity {
         editor.putString("pexels_key", pexelsField.getText().toString().trim());
         editor.putString("unsplash_key", unsplashField.getText().toString().trim());
         editor.putBoolean("configured", true);
-        editor.apply();
+        return editor.commit();
+    }
+
+    private void validateSavedApis() {
+        final String pix = prefs.getString("pixabay_key", "");
+        final String pex = prefs.getString("pexels_key", "");
+        final String uns = prefs.getString("unsplash_key", "");
+
+        executor.execute(() -> {
+            StringBuilder report = new StringBuilder("RESULTADO DOS TESTES\n");
+            int configuredCount = 0;
+            int successCount = 0;
+
+            if (pix.isEmpty()) {
+                report.append("Pixabay: não configurada\n");
+            } else {
+                configuredCount++;
+                try {
+                    int count = searchPixabay(pix, "Natureza").size();
+                    report.append("Pixabay: CONEXÃO OK — chave aceita ( ").append(count).append(" imagens encontradas )\n");
+                    successCount++;
+                } catch (Exception e) {
+                    report.append("Pixabay: FALHOU — ").append(safeError(e)).append("\n");
+                }
+            }
+
+            if (pex.isEmpty()) {
+                report.append("Pexels: não configurada\n");
+            } else {
+                configuredCount++;
+                try {
+                    int count = searchPexels(pex, "Natureza").size();
+                    report.append("Pexels: CONEXÃO OK — chave aceita ( ").append(count).append(" imagens encontradas )\n");
+                    successCount++;
+                } catch (Exception e) {
+                    report.append("Pexels: FALHOU — ").append(safeError(e)).append("\n");
+                }
+            }
+
+            if (uns.isEmpty()) {
+                report.append("Unsplash: não configurada\n");
+            } else {
+                configuredCount++;
+                try {
+                    int count = searchUnsplash(uns, "Natureza").size();
+                    report.append("Unsplash: CONEXÃO OK — chave aceita ( ").append(count).append(" imagens encontradas )\n");
+                    successCount++;
+                } catch (Exception e) {
+                    report.append("Unsplash: FALHOU — ").append(safeError(e)).append("\n");
+                }
+            }
+
+            if (configuredCount == 0) {
+                report.append("Nenhuma chave de API foi preenchida.");
+            } else {
+                report.append("\nResumo: ").append(successCount).append(" de ").append(configuredCount).append(" APIs responderam corretamente.");
+            }
+
+            final String finalReport = report.toString();
+            final int finalSuccessCount = successCount;
+            final int finalConfiguredCount = configuredCount;
+            runOnUiThread(() -> {
+                setLoading(false);
+                if (validationStatus != null) validationStatus.setText(finalReport);
+                if (saveButton != null) saveButton.setEnabled(true);
+                status.setText(finalConfiguredCount == 0
+                        ? "Configurações salvas, mas nenhuma API foi informada."
+                        : "Teste das APIs concluído. Consulte o resultado abaixo das chaves.");
+                Toast.makeText(this,
+                        finalConfiguredCount > 0 && finalSuccessCount == finalConfiguredCount
+                                ? "Configurações salvas. Todas as APIs configuradas responderam!"
+                                : "Configurações salvas. Confira o resultado de cada API.",
+                        Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
+    private String safeError(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.trim().isEmpty()) return "erro de conexão ou resposta inválida";
+        message = message.replace('\n', ' ').replace('\r', ' ');
+        return message.length() > 110 ? message.substring(0, 110) + "..." : message;
     }
 
     private static class ImageCandidate {
