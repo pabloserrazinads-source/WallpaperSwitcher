@@ -6,7 +6,13 @@ def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_FILE')
 def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
-def hasReleaseSigning = [releaseKeystorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every { it != null && !it.trim().isEmpty() }
+
+def hasReleaseSigning = [
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+].every { it != null && !it.trim().isEmpty() }
 
 android {
     namespace 'com.wallpaperswitcher'
@@ -24,6 +30,7 @@ android {
         release {
             if (hasReleaseSigning) {
                 storeFile file(releaseKeystorePath)
+                storeType 'PKCS12'
                 storePassword releaseStorePassword
                 keyAlias releaseKeyAlias
                 keyPassword releaseKeyPassword
