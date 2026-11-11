@@ -20,9 +20,17 @@ jobs:
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+          packages: ''
+
+      - name: Aceitar licenças do Android SDK
+        run: |
+          yes | sdkmanager --licenses
 
       - name: Instalar componentes Android
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          yes | sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Instalar Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -30,7 +38,8 @@ jobs:
           gradle-version: '8.9'
 
       - name: Gerar Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
+        run: |
+          gradle wrapper --gradle-version 8.9 --distribution-type bin
 
       - name: Compilar APK
         run: |
