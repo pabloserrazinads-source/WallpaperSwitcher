@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -10,6 +9,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
     steps:
       - name: Baixar projeto
@@ -41,6 +45,19 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+      - name: Preparar assinatura permanente
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "Faltam os GitHub Actions Secrets de assinatura. Consulte SIGNING_SETUP.txt no pacote de configuração."
+            exit 1
+          fi
+          KEYSTORE_PATH="$RUNNER_TEMP/wallpaper-switcher-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
       - name: Instalar Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -49,16 +66,16 @@ jobs:
       - name: Gerar Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9 --distribution-type bin
 
-      - name: Compilar APK
+      - name: Compilar APK assinado
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon clean assembleDebug
+          ./gradlew --no-daemon clean assembleRelease
 
-      - name: Disponibilizar APK
+      - name: Disponibilizar APK assinado
         uses: actions/upload-artifact@v4
         with:
-          name: WallpaperSwitcher-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: WallpaperSwitcher-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Salvar arquivos do Wrapper
@@ -71,4 +88,3 @@ jobs:
             gradle/wrapper/gradle-wrapper.jar
             gradle/wrapper/gradle-wrapper.properties
           if-no-files-found: error
-          
