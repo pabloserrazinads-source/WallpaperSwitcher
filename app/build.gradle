@@ -22,7 +22,12 @@ android {
         applicationId 'com.wallpaperswitcher'
         minSdk 24
         targetSdk 35
-        versionCode Math.max(3, (System.getenv('GITHUB_RUN_NUMBER') ?: '3').toInteger())
+
+        versionCode Math.max(
+            3,
+            (System.getenv('GITHUB_RUN_NUMBER') ?: '3').toInteger()
+        )
+
         versionName '1.2-java'
     }
 
@@ -43,6 +48,7 @@ android {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
+
             minifyEnabled false
         }
     }
