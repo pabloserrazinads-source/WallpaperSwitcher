@@ -62,16 +62,21 @@ public class MainActivity extends Activity {
     private Button saveButton;
     private final Map<String, CheckBox> categoryChecks = new HashMap<>();
     private EditText pixabayField, pexelsField, unsplashField;
+    private boolean shortcutMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("wallpaper_settings", MODE_PRIVATE);
         executor = Executors.newSingleThreadExecutor();
-        buildHome();
-        if (ACTION_CHANGE_WALLPAPER.equals(getIntent().getAction())) {
+        shortcutMode = ACTION_CHANGE_WALLPAPER.equals(getIntent().getAction());
+        if (shortcutMode) {
+            buildShortcutScreen();
             changeWallpaper();
-        } else if (!prefs.getBoolean("configured", false)) {
+        } else {
+            buildHome();
+        }
+        if (!shortcutMode && !prefs.getBoolean("configured", false)) {
             status.setText("Configure suas fontes e categorias. Depois, use Mudar papel de parede.");
         }
     }
@@ -87,8 +92,34 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (ACTION_CHANGE_WALLPAPER.equals(intent.getAction())) {
+            shortcutMode = true;
+            buildShortcutScreen();
             changeWallpaper();
         }
+    }
+
+    private void buildShortcutScreen() {
+        LinearLayout screen = new LinearLayout(this);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        screen.setGravity(Gravity.CENTER);
+        screen.setPadding(dp(24), dp(24), dp(24), dp(24));
+        screen.setBackgroundColor(0xFF101827);
+
+        status = new TextView(this);
+        status.setText("Preparando a troca do papel de parede...");
+        status.setTextColor(0xFFFFFFFF);
+        status.setTextSize(16);
+        status.setGravity(Gravity.CENTER);
+        screen.addView(status, full());
+
+        progress = new ProgressBar(this);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(48), dp(48));
+        p.gravity = Gravity.CENTER;
+        p.topMargin = dp(20);
+        screen.addView(progress, p);
+        loadingIcon = null;
+        changeButton = null;
+        setContentView(screen);
     }
 
     private int dp(int value) {
@@ -215,8 +246,22 @@ public class MainActivity extends Activity {
     }
 
     private void showSettings() {
-        if (root.getChildCount() > 4) root.removeViews(4, root.getChildCount() - 4);
+        root.removeAllViews();
+
+        TextView settingsTitle = new TextView(this);
+        settingsTitle.setText("CONFIGURAÇÕES");
+        settingsTitle.setTextSize(22);
+        settingsTitle.setTextColor(0xFFFFFFFF);
+        settingsTitle.setGravity(Gravity.CENTER);
+        root.addView(settingsTitle, full());
+
+        status = new TextView(this);
         status.setText("Escolha as categorias e configure suas chaves de API.");
+        status.setTextSize(14);
+        status.setTextColor(0xFFB8C4D8);
+        status.setGravity(Gravity.CENTER);
+        status.setPadding(0, dp(10), 0, dp(18));
+        root.addView(status, full());
         setLoading(false);
         categoryChecks.clear();
 
@@ -456,8 +501,14 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     setLoading(false);
-                    status.setText("Não foi possível trocar a imagem: " +
-                            (e.getMessage() == null ? "erro desconhecido" : e.getMessage()));
+                    String message = "Não foi possível trocar a imagem: " +
+                            (e.getMessage() == null ? "erro desconhecido" : e.getMessage());
+                    if (shortcutMode) {
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                        finish();
+                    } else if (status != null) {
+                        status.setText(message);
+                    }
                 });
             }
         });
